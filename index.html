@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV Explorer</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@latest/dist/handsontable.full.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/handsontable@latest/dist/handsontable.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@latest"></script>
+    <style>
+        body {
+            display: flex;
+            height: 100%;
+            margin: 0;
+            background-color: #0d1b2a; /* Dark background for the page */
+        }
+        .sidebar {
+            width: 250px;
+            background: #1b263b;
+            color: white;
+            padding: 20px;
+            overflow-y: auto;
+            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+        }
+        .csv-viewer {
+            flex-grow: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        .csv-file {
+            cursor: pointer;
+            margin: 10px 0;
+            padding: 10px;
+            background: #2f4f4f;
+            border-radius: 5px;
+            color: #a7c957;
+            transition: background 0.3s;
+        }
+        .csv-file:hover {
+            background: #3f5f5f;
+        }
+        #example {
+            height: calc(100vh - 40px); /* Full height of the remaining space */
+        }
+        .loading {
+            text-align: center;
+            color: #a7c957;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h3>CSV Files</h3>
+        <div id="csvList"></div>
+    </div>
+    <div class="csv-viewer">
+        <div id="loadingIndicator" class="loading" style="display:none;">
+            Loading...
+        </div>
+        <div id="example"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            loadCSVFiles();
+        });
+
+        function loadCSVFiles() {
+            // Fetch the list of CSV files from your server or backend
+            fetch('/api/list_csv') // Update this to point to your actual API endpoint
+                .then(response => response.json())
+                .then(data => {
+                    const csvList = document.getElementById('csvList');
+                    data.csv_files.forEach(file => {
+                        const div = document.createElement('div');
+                        div.className = 'csv-file';
+                        div.textContent = file;
+                        div.onclick = () => loadCSV(file);
+                        csvList.appendChild(div);
+                    });
+                })
+                .catch(error => console.error('Error loading CSV list:', error));
+        }
+
+        function loadCSV(filePath) {
+            // Show loading indicator
+            document.getElementById('loadingIndicator').style.display = 'block';
+
+            // Reset previous Handsontable instance
+            if (window.hot) {
+                window.hot.destroy();
+            }
+
+            fetch(`/api/load_csv_paginated?file_path=${filePath}&offset=0&limit=100`) // Initial chunk
+                .then(response => response.json())
+                .then(data => {
+                    const { columns, data: rows } = data;
+                    createHandsontable(rows, columns);
+
+                    // Setup infinite scroll
+                    let offset = 100;
+                    const limit = 100;
+                    const exampleDiv = document.getElementById('example');
+
+                    exampleDiv.onscroll = () => {
+                        if (exampleDiv.scrollTop + exampleDiv.clientHeight >= exampleDiv.scrollHeight) {
+                            // Load the next chunk of rows
+                            fetch(`/api/load_csv_paginated?file_path=${filePath}&offset=${offset}&limit=${limit}`)
+                                .then(response => response.json())
+                                .then(newData => {
+                                    if (newData.data.length > 0) {
+                                        window.hot.loadData([...window.hot.getData(), ...newData.data]);
+                                        offset += limit;
+                                    }
+                                })
+                                .catch(error => console.error('Error loading additional CSV rows:', error));
+                        }
+                    };
+                })
+                .finally(() => {
+                    // Hide loading indicator once loading is complete
+                    document.getElementById('loadingIndicator').style.display = 'none';
+                })
+                .catch(error => {
+                    console.error('Error loading the CSV file:', error);
+                    document.getElementById('loadingIndicator').style.display = 'none';
+                });
+        }
+
+        function createHandsontable(data, colHeaders) {
+            const container = document.getElementById('example');
+            window.hot = new Handsontable(container, {
+                data: data,
+                colHeaders: colHeaders,
+                rowHeaders: true,
+                columns: colHeaders.map(header => ({
+                    data: header,
+                    type: 'text',
+                    title: header
+                })),
+                licenseKey: 'non-commercial-and-evaluation', // Specify the license key here
+                colWidths: 150,
+                rowHeights: 23,
+                manualColumnResize: true,
+                manualRowResize: true,
+                filters: true,
+                dropdownMenu: true,
+                columnSorting: true
+            });
+        }
+    </script>
+</body>
+</html>
