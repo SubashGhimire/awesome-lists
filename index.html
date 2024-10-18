@@ -12,46 +12,65 @@
             height: 100vh;
             margin: 0;
             background-color: #0d1b2a;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
         }
         .sidebar {
             width: 250px;
             background: #1b263b;
             color: white;
-            padding: 20px;
+            padding: 10px;
             overflow-y: auto;
-            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+            box-sizing: border-box;
         }
         .csv-viewer {
             flex-grow: 1;
-            padding: 20px;
-            overflow-y: auto;
-        }
-        .csv-file {
-            cursor: pointer;
-            margin: 10px 0;
             padding: 10px;
+            overflow: auto;
+            box-sizing: border-box;
+        }
+        .item {
+            cursor: pointer;
+            margin: 5px 0;
+            padding: 5px;
             background: #2f4f4f;
-            border-radius: 5px;
+            border-radius: 3px;
             color: #a7c957;
             transition: background 0.3s;
+            word-break: break-word;
         }
-        .csv-file:hover {
+        .item:hover {
             background: #3f5f5f;
         }
+        .folder {
+            font-weight: bold;
+        }
+        .nested {
+            display: none;
+            padding-left: 15px;
+        }
+        .active {
+            display: block;
+        }
         #example {
-            height: calc(100vh - 40px);
+            height: calc(100vh - 20px);
         }
         .loading {
             text-align: center;
             color: #a7c957;
             padding: 10px;
         }
+        .toggle-btn {
+            margin-right: 5px;
+            cursor: pointer;
+            color: #a7c957;
+        }
     </style>
 </head>
 <body>
     <div class="sidebar">
         <h3>CSV Files</h3>
-        <div id="csvList"></div>
+        <div id="fileTree"></div>
     </div>
     <div class="csv-viewer">
         <div id="loadingIndicator" class="loading" style="display:none;">
@@ -92,11 +111,11 @@
             return {
                 githubUsername,
                 repoName,
-                branchName: 'main' // Assuming 'main'; you can adjust as needed
+                branchName: 'main' // Adjust if your default branch is different
             };
         }
 
-        function loadCSVFiles() {
+        async function loadCSVFiles() {
             const repoInfo = getRepoInfo();
             if (!repoInfo) {
                 alert('Failed to retrieve repository information.');
@@ -104,7 +123,14 @@
             }
 
             const { githubUsername, repoName, branchName } = repoInfo;
-            const apiUrl = `https://api.github.com/repos/${githubUsername}/${repoName}/git/trees/${branchName}?recursive=1`;
+
+            // Fetch default branch if not specified
+            if (!branchName) {
+                const branch = await getDefaultBranch(githubUsername, repoName);
+                repoInfo.branchName = branch;
+            }
+
+            const apiUrl = `https://api.github.com/repos/${githubUsername}/${repoName}/git/trees/${repoInfo.branchName}?recursive=1`;
 
             fetch(apiUrl)
                 .then(response => response.json())
@@ -114,21 +140,90 @@
                         return;
                     }
 
-                    const csvFiles = data.tree.filter(file => file.path.endsWith('.csv'));
-                    const csvList = document.getElementById('csvList');
-
-                    csvFiles.forEach(file => {
-                        const div = document.createElement('div');
-                        div.className = 'csv-file';
-                        div.textContent = file.path;
-                        div.onclick = () => loadCSV(file.path, githubUsername, repoName, branchName);
-                        csvList.appendChild(div);
-                    });
+                    const files = data.tree.filter(file => file.type === 'blob' && file.path.endsWith('.csv'));
+                    const fileTree = buildFileTree(files.map(file => file.path));
+                    displayFileTree(fileTree);
                 })
                 .catch(error => console.error('Error loading CSV list:', error));
         }
 
-        function loadCSV(filePath, githubUsername, repoName, branchName) {
+        function buildFileTree(paths) {
+            const tree = {};
+            for (const path of paths) {
+                const parts = path.split('/');
+                let current = tree;
+                for (const part of parts) {
+                    if (!current[part]) {
+                        current[part] = {};
+                    }
+                    current = current[part];
+                }
+            }
+            return tree;
+        }
+
+        function displayFileTree(tree, container = null, path = '') {
+            if (!container) {
+                container = document.getElementById('fileTree');
+            }
+
+            for (const name in tree) {
+                const fullPath = path ? `${path}/${name}` : name;
+                const isFile = Object.keys(tree[name]).length === 0;
+
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'item' + (isFile ? '' : ' folder');
+
+                if (!isFile) {
+                    // Directory
+                    const toggleBtn = document.createElement('span');
+                    toggleBtn.textContent = '[+]';
+                    toggleBtn.className = 'toggle-btn';
+                    toggleBtn.onclick = function(event) {
+                        event.stopPropagation();
+                        const nested = itemDiv.nextElementSibling;
+                        if (nested.style.display === 'block') {
+                            nested.style.display = 'none';
+                            toggleBtn.textContent = '[+]';
+                        } else {
+                            nested.style.display = 'block';
+                            toggleBtn.textContent = '[-]';
+                        }
+                    };
+                    itemDiv.appendChild(toggleBtn);
+
+                    const dirName = document.createElement('span');
+                    dirName.textContent = name;
+                    itemDiv.appendChild(dirName);
+
+                    itemDiv.onclick = function(event) {
+                        toggleBtn.onclick(event);
+                    };
+
+                    container.appendChild(itemDiv);
+
+                    const nestedDiv = document.createElement('div');
+                    nestedDiv.className = 'nested';
+                    container.appendChild(nestedDiv);
+
+                    displayFileTree(tree[name], nestedDiv, fullPath);
+                } else {
+                    // File
+                    itemDiv.textContent = name;
+                    itemDiv.onclick = () => loadCSV(fullPath);
+                    container.appendChild(itemDiv);
+                }
+            }
+        }
+
+        function loadCSV(filePath) {
+            const repoInfo = getRepoInfo();
+            if (!repoInfo) {
+                alert('Failed to retrieve repository information.');
+                return;
+            }
+            const { githubUsername, repoName, branchName } = repoInfo;
+
             document.getElementById('loadingIndicator').style.display = 'block';
 
             if (window.hot) {
@@ -158,11 +253,6 @@
                 data: data,
                 colHeaders: colHeaders,
                 rowHeaders: true,
-                columns: colHeaders.map(header => ({
-                    data: header,
-                    type: 'text',
-                    title: header
-                })),
                 licenseKey: 'non-commercial-and-evaluation',
                 colWidths: 150,
                 rowHeights: 23,
@@ -170,8 +260,21 @@
                 manualRowResize: true,
                 filters: true,
                 dropdownMenu: true,
-                columnSorting: true
+                columnSorting: true,
+                stretchH: 'all', // Adjust columns to fit the available space
             });
+        }
+
+        async function getDefaultBranch(githubUsername, repoName) {
+            const apiUrl = `https://api.github.com/repos/${githubUsername}/${repoName}`;
+            try {
+                const response = await fetch(apiUrl);
+                const data = await response.json();
+                return data.default_branch || 'main';
+            } catch (error) {
+                console.error('Error fetching default branch:', error);
+                return 'main';
+            }
         }
     </script>
 </body>
