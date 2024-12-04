@@ -1,4 +1,4 @@
-dest_port,metadata_comment,metadata_confidence,metatada_category,metadata_detection_type
+dest_port,metadata_comment,metadata_confidence,metadata_category,metadata_detection_type
 666,multiple malwares callback communications but also legit usages,medium,malware,hunting
 801,manjusaka (cobalstrike chinese clone) default panel ui,medium,malware,hunting
 1005,Nitedrem trojan Downloader + Pest + Theef,medium,malware,hunting
